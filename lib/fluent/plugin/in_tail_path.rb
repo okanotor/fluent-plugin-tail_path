@@ -12,6 +12,24 @@ class Fluent::NewTailPathInput < Fluent::NewTailInput
   if method_defined?(:parse_line) # fluentd < 0.10.50
 
     # Override to add path field
+    def flush_buffer(tw)
+      if lb = tw.line_buffer
+        lb.chomp!
+        time, record = parse_line(lb)
+        if time && record
+          tag = if @tag_prefix || @tag_suffix
+                  @tag_prefix + tw.tag + @tag_suffix
+                else
+                  @tag
+                end
+          record[@path_key] ||= tw.path unless @path_key.nil? # custom
+          Fluent::Engine.emit(tag, time, record)
+        else
+          log.warn "got incomplete line at shutdown from #{tw.path}: #{lb.inspect}"
+        end
+      end
+    end
+
     def convert_line_to_event(line, es, tail_watcher)
       begin
         line.chomp!  # remove \n
@@ -31,6 +49,25 @@ class Fluent::NewTailPathInput < Fluent::NewTailInput
   else # fluentd >= 0.10.50
 
     # Override to add path field
+    def flush_buffer(tw)
+      if lb = tw.line_buffer
+        lb.chomp!
+        @parser.parse(lb) { |time, record|
+          if time && record
+            tag = if @tag_prefix || @tag_suffix
+                    @tag_prefix + tw.tag + @tag_suffix
+                  else
+                    @tag
+                  end
+            record[@path_key] ||= tw.path unless @path_key.nil? # custom
+            Fluent::Engine.emit(tag, time, record)
+          else
+            log.warn "got incomplete line at shutdown from #{tw.path}: #{lb.inspect}"
+          end
+        }
+      end
+    end
+
     def convert_line_to_event(line, es, tail_watcher)
       begin
         line.chomp!  # remove \n
